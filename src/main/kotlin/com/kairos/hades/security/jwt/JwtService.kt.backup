@@ -1,0 +1,153 @@
+﻿// C:\03Marketing\Hades\src\main\kotlin\com\kairos\hades\security\jwt\JwtService.kt
+// JWT Token Management Service for Multi-App Authentication
+
+package com.kairos.hades.security.jwt
+
+import com.kairos.hades.app.entity.AppPermission
+import com.kairos.hades.app.entity.AppRole
+import com.kairos.hades.user.entity.GlobalRole
+import io.jsonwebtoken.*
+import io.jsonwebtoken.security.Keys
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.stereotype.Service
+import java.security.Key
+import java.time.Instant
+import java.util.*
+import javax.crypto.SecretKey
+
+@Service
+class JwtService(
+    @Value("\${kairos.security.jwt.secret}") private val jwtSecret: String,
+    @Value("\${kairos.security.jwt.expiration}") private val jwtExpiration: Long,
+    @Value("\${kairos.security.jwt.refresh-expiration}") private val refreshExpiration: Long
+) {
+    
+    private val secretKey: SecretKey = Keys.hmacShaKeyFor(jwtSecret.toByteArray())
+    
+    // Generate initial token (no app context)
+    fun generateToken(
+        userId: UUID,
+        email: String,
+        globalRole: GlobalRole,
+        organizationId: UUID
+    ): String {
+        val now = Date()
+        val expiryDate = Date(now.time + jwtExpiration * 1000)
+        
+        return Jwts.builder()
+            .setSubject(userId.toString())
+            .setIssuedAt(now)
+            .setExpiration(expiryDate)
+            .claim("email", email)
+            .claim("globalRole", globalRole.name)
+            .claim("organizationId", organizationId.toString())
+            .claim("tokenType", "GLOBAL")
+            .signWith(secretKey, SignatureAlgorithm.HS512)
+            .compact()
+    }
+    
+    // Generate app-scoped token
+    fun generateAppScopedToken(
+        userId: UUID,
+        appId: UUID,
+        role: AppRole,
+        permissions: Set<AppPermission>
+    ): String {
+        val now = Date()
+        val expiryDate = Date(now.time + jwtExpiration * 1000)
+        
+        return Jwts.builder()
+            .setSubject(userId.toString())
+            .setIssuedAt(now)
+            .setExpiration(expiryDate)
+            .claim("appId", appId.toString())
+            .claim("role", role.name)
+            .claim("permissions", permissions.map { it.name })
+            .claim("tokenType", "APP_SCOPED")
+            .signWith(secretKey, SignatureAlgorithm.HS512)
+            .compact()
+    }
+    
+    // Generate refresh token
+    fun generateRefreshToken(userId: UUID): String {
+        val now = Date()
+        val expiryDate = Date(now.time + refreshExpiration * 1000)
+        
+        return Jwts.builder()
+            .setSubject(userId.toString())
+            .setIssuedAt(now)
+            .setExpiration(expiryDate)
+            .claim("tokenType", "REFRESH")
+            .signWith(secretKey, SignatureAlgorithm.HS512)
+            .compact()
+    }
+    
+    // Extract user ID from any token type
+    fun extractUserId(authorization: String): UUID {
+        val token = extractToken(authorization)
+        val claims = validateAndExtractClaims(token)
+        return UUID.fromString(claims.subject)
+    }
+    
+    // Extract app ID from app-scoped token
+    fun extractAppId(authorization: String): UUID? {
+        val token = extractToken(authorization)
+        val claims = validateAndExtractClaims(token)
+        val appIdClaim = claims["appId"] as? String
+        return appIdClaim?.let { UUID.fromString(it) }
+    }
+    
+    // Extract user permissions from app-scoped token
+    fun extractPermissions(authorization: String): Set<AppPermission> {
+        val token = extractToken(authorization)
+        val claims = validateAndExtractClaims(token)
+        val permissionsClaim = claims["permissions"] as? List<*>
+        return permissionsClaim?.mapNotNull { 
+            try { AppPermission.valueOf(it.toString()) } catch (e: Exception) { null }
+        }?.toSet() ?: emptySet()
+    }
+    
+    // Validate token and get claims
+    fun validateAndExtractClaims(token: String): Claims {
+        return try {
+            Jwts.parserBuilder()
+                .setSigningKey(secretKey)
+                .build()
+                .parseClaimsJws(token)
+                .body
+        } catch (ex: Exception) {
+            throw JwtException("Invalid or expired token", ex)
+        }
+    }
+    
+    // Validate refresh token specifically
+    fun validateRefreshToken(refreshToken: String): UUID {
+        val claims = validateAndExtractClaims(refreshToken)
+        val tokenType = claims["tokenType"] as? String
+        
+        if (tokenType != "REFRESH") {
+            throw JwtException("Invalid refresh token")
+        }
+        
+        return UUID.fromString(claims.subject)
+    }
+    
+    // Check if token is app-scoped
+    fun isAppScopedToken(authorization: String): Boolean {
+        val token = extractToken(authorization)
+        val claims = validateAndExtractClaims(token)
+        return claims["tokenType"] == "APP_SCOPED"
+    }
+    
+    // Extract token from Authorization header
+    private fun extractToken(authorization: String): String {
+        if (!authorization.startsWith("Bearer ")) {
+            throw JwtException("Invalid authorization header format")
+        }
+        return authorization.substring(7)
+    }
+    
+    fun getTokenExpiration(): Long = jwtExpiration
+}
+
+class JwtException(message: String, cause: Throwable? = null) : RuntimeException(message, cause)

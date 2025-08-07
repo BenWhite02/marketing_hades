@@ -1,0 +1,98 @@
+﻿package com.kairos.hades.config
+
+import com.fasterxml.jackson.databind.DeserializationFeature
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.databind.PropertyNamingStrategies
+import com.fasterxml.jackson.databind.SerializationFeature
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule
+import com.fasterxml.jackson.module.kotlin.KotlinModule
+import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.annotation.Bean
+import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Primary
+import org.springframework.http.codec.ServerCodecConfigurer
+import org.springframework.http.codec.json.Jackson2JsonDecoder
+import org.springframework.http.codec.json.Jackson2JsonEncoder
+import org.springframework.web.cors.CorsConfiguration
+import org.springframework.web.cors.reactive.CorsConfigurationSource
+import org.springframework.web.cors.reactive.UrlBasedCorsConfigurationSource
+import org.springframework.web.reactive.config.EnableWebFlux
+import org.springframework.web.reactive.config.WebFluxConfigurer
+
+/**
+ * Web configuration for Spring WebFlux
+ */
+@Configuration
+@EnableWebFlux
+class WebConfig : WebFluxConfigurer {
+
+    @Value("\${kairos.security.cors.allowed-origins}")
+    private lateinit var allowedOrigins: String
+
+    @Value("\${kairos.security.cors.allowed-methods}")
+    private lateinit var allowedMethods: String
+
+    @Value("\${kairos.security.cors.allowed-headers}")
+    private lateinit var allowedHeaders: String
+
+    @Value("\${kairos.security.cors.allow-credentials}")
+    private var allowCredentials: Boolean = true
+
+    @Bean
+    @Primary
+    fun objectMapper(): ObjectMapper {
+        return ObjectMapper().apply {
+            registerModule(KotlinModule.Builder().build())
+            registerModule(JavaTimeModule())
+            
+            configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
+            configure(SerializationFeature.INDENT_OUTPUT, false)
+            configure(SerializationFeature.FAIL_ON_EMPTY_BEANS, false)
+            
+            configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+            configure(DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT, true)
+            configure(DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY, true)
+            
+            propertyNamingStrategy = PropertyNamingStrategies.SNAKE_CASE
+            
+            findAndRegisterModules()
+        }
+    }
+
+    override fun configureHttpMessageCodecs(configurer: ServerCodecConfigurer) {
+        val objectMapper = objectMapper()
+        
+        configurer.defaultCodecs().apply {
+            jackson2JsonEncoder(Jackson2JsonEncoder(objectMapper))
+            jackson2JsonDecoder(Jackson2JsonDecoder(objectMapper))
+            maxInMemorySize(10 * 1024 * 1024)
+        }
+    }
+
+    @Bean
+    fun corsConfigurationSource(): CorsConfigurationSource {
+        val configuration = CorsConfiguration().apply {
+            allowedOriginPatterns = allowedOrigins.split(",").map { it.trim() }
+            allowedMethods = this@WebConfig.allowedMethods.split(",").map { it.trim() }
+            allowedHeaders = if (this@WebConfig.allowedHeaders == "*") {
+                listOf("*")
+            } else {
+                this@WebConfig.allowedHeaders.split(",").map { it.trim() }
+            }
+            
+            allowCredentials = this@WebConfig.allowCredentials
+            maxAge = 3600
+            
+            exposedHeaders = listOf(
+                "Authorization",
+                "Content-Type",
+                "X-Total-Count",
+                "X-Request-ID"
+            )
+        }
+
+        val source = UrlBasedCorsConfigurationSource()
+        source.registerCorsConfiguration("/**", configuration)
+        return source
+    }
+}

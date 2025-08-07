@@ -1,0 +1,20 @@
+﻿spring:
+  config:
+    activate:
+      on-profile: dev
+  
+  r2dbc:
+    url: r2dbc:postgresql://localhost:5432/kairos_dev_db
+  
+  logging:
+    level:
+      com.kairos.hades: DEBUG
+      org.springframework.r2dbc: DEBUG
+
+kairos:
+  security:
+    jwt:
+      secret: dev-secret-key-for-development-only
+  apps:
+    sandbox:
+      auto-create: true

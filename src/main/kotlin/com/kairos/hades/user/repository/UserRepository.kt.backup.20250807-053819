@@ -1,0 +1,28 @@
+﻿// C:\03Marketing\Hades\src\main\kotlin\com\kairos\hades\user\repository\UserRepository.kt
+// User repository interface
+
+package com.kairos.hades.user.repository
+
+import com.kairos.hades.user.entity.User
+import kotlinx.coroutines.flow.Flow
+import org.springframework.data.repository.kotlin.CoroutineCrudRepository
+import org.springframework.data.r2dbc.repository.Query
+import org.springframework.stereotype.Repository
+import java.time.LocalDateTime
+import java.util.*
+
+@Repository
+interface UserRepository : CoroutineCrudRepository<User, UUID> {
+    
+    @Query("SELECT * FROM users WHERE email = :email AND is_active = :isActive")
+    suspend fun findByEmailAndIsActive(email: String, isActive: Boolean): User?
+    
+    @Query("SELECT * FROM users WHERE organization_id = :organizationId AND is_active = true")
+    fun findByOrganizationId(organizationId: UUID): Flow<User>
+    
+    @Query("SELECT * FROM users WHERE email = :email")
+    suspend fun findByEmail(email: String): User?
+    
+    @Query("UPDATE users SET last_login_at = :lastLogin WHERE id = :id")
+    suspend fun updateLastLogin(id: UUID, lastLogin: LocalDateTime)
+}

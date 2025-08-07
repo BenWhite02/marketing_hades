@@ -1,0 +1,13 @@
+﻿*.class
+*.log
+.gradle/
+build/
+.idea/
+*.iml
+.env
+.env.local
+*.pid
+*.db
+*.tmp
+.DS_Store
+Thumbs.db
